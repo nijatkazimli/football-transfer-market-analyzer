@@ -1,0 +1,64 @@
+name: Run Analysis Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Run pipeline
+        run: python main.py
+
+      - name: Show analysis summary
+        run: |
+          python -c "
+          import pandas as pd
+
+          print('## Players Dataset')
+          df = pd.read_csv('data/players_full.csv')
+          print(f'Total players: {len(df)}')
+          print(f'Clubs: {df[\"club\"].nunique()}')
+          print()
+
+          mv_col = 'market_value_eur_squad' if 'market_value_eur_squad' in df.columns else 'market_value_eur'
+          df['mv'] = pd.to_numeric(df[mv_col], errors='coerce')
+
+          print('### Top 10 Most Valuable Players')
+          top10 = df.nlargest(10, 'mv')[['player_name', 'club', 'mv']].reset_index(drop=True)
+          top10['mv'] = top10['mv'].apply(lambda x: f'€{x/1e6:.1f}M')
+          print(top10.to_markdown(index=False))
+          print()
+
+          print('### Average Market Value by Club (Top 10)')
+          by_club = df.groupby('club')['mv'].mean().sort_values(ascending=False).head(10)
+          print(by_club.apply(lambda x: f'€{x/1e6:.1f}M').to_markdown())
+          print()
+
+          import os
+          if os.path.exists('data/market_value_history.csv'):
+              mv = pd.read_csv('data/market_value_history.csv')
+              print(f'### Market Value History')
+              print(f'Data points: {len(mv)}')
+              print(f'Players covered: {mv[\"player_name\"].nunique()}')
+          " | tee "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload data artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraped-data
+          path: data/
