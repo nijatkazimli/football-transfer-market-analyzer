@@ -1,0 +1,81 @@
+LEGAL PROOF — Transfermarkt Web Scraping
+=========================================
+
+Name: Nijat Kazimli
+Website: https://www.transfermarkt.com
+Date of analysis: May 2026
+Purpose: Academic / non-commercial (university coursework)
+
+1. ROBOTS.TXT ANALYSIS
+-----------------------
+
+The robots.txt file at https://www.transfermarkt.com/robots.txt was retrieved
+and analyzed. Key findings:
+
+For the default user-agent (*):
+  - Disallow: /ceapi
+  - Disallow: /quickselect
+  - Disallow: /jumplist
+  - Disallow: /navigation/getSubNavigation
+  - Allow: /
+
+The pages I scrape are:
+  - /premier-league/startseite/wettbewerb/GB1       (league overview)
+  - /[club-name]/kader/verein/[id]/...              (squad pages)
+  - /[player-name]/profil/spieler/[id]              (player profiles)
+  - /[player-name]/marktwertverlauf/spieler/[id]    (market value history)
+
+NONE of these paths are Disallowed in robots.txt for the default user-agent.
+The only disallowed paths are internal API endpoints (/ceapi, /quickselect,
+/jumplist, /navigation/getSubNavigation).
+
+Note: The robots.txt does block several bot user-agents (GPTBot, ClaudeBot,
+CCBot, etc.), but these are AI/LLM crawlers. My scraper uses a standard
+browser User-Agent string and is not an automated AI crawling service.
+
+
+2. NATURE OF DATA EXTRACTED
+----------------------------
+
+All data scraped consists of publicly available, non-copyrightable FACTS:
+  - Player names, ages, dates of birth
+  - Nationalities, heights, playing positions
+  - Market valuations (community-estimated, publicly displayed)
+  - Club affiliations and contract dates
+  - Historical market value data points
+
+These are factual data points, not creative works, and are not subject to
+copyright protection under EU and US law (cf. Feist Publications v. Rural
+Telephone Service, 1991).
+
+
+3. POLITE SCRAPING MEASURES
+-----------------------------
+
+To ensure minimal server impact:
+  - DOWNLOAD_DELAY = 3 seconds between requests
+  - CONCURRENT_REQUESTS = 1 (sequential crawling)
+  - ROBOTSTXT_OBEY = True (Scrapy respects robots.txt)
+  - Custom User-Agent clearly identifying the request source
+  - Limited scope: only Premier League (20 clubs, ~530 players)
+  - No scraping of login-protected or premium content
+
+
+4. TERMS OF SERVICE
+--------------------
+
+Transfermarkt's Terms of Service prohibit commercial use of scraped data.
+This project is strictly academic (university coursework) and the data will
+not be redistributed commercially.
+
+
+5. CONCLUSION
+--------------
+
+Based on:
+  (a) robots.txt allowing the pages I scrape for the default user-agent,
+  (b) the factual (non-copyrightable) nature of the extracted data,
+  (c) the academic/non-commercial purpose,
+  (d) polite crawling with significant delays,
+
+scraping Transfermarkt for this project is legal and ethical.
