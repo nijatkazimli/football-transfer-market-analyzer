@@ -1,12 +1,11 @@
-"""
-profile_scraper.py — Scrapes player profile pages using requests + BeautifulSoup.
-"""
+"""Scrapes individual player profile pages with requests + BeautifulSoup."""
 
 import re
 import time
 import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
+
 from regex_utils import (
     clean_whitespace,
     extract_date,
@@ -16,41 +15,32 @@ from regex_utils import (
     extract_year,
 )
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-}
+UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
 
-SESSION = requests.Session()
-SESSION.headers.update(HEADERS)
+session = requests.Session()
+session.headers.update({"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"})
 
 
-def _get_info_value(soup: BeautifulSoup, label: str) -> str:
-    """Extract a value from the player info section by its label text.
+def get_info_value(soup, label):
+    # Transfermarkt uses two different layouts for player info, so try both.
+    label_lc = label.lower()
 
-    Transfermarkt uses two layouts depending on the section:
-      1. li.data-header__label with span.data-header__content (header area)
-      2. div.info-table with span pairs: regular (label) → bold (value)
-    """
+    # 1) header area
     for li in soup.select("li.data-header__label"):
-        li_text = li.get_text(separator="|", strip=True)
-        if label.lower() in li_text.lower():
-            content_span = li.select_one("span.data-header__content")
-            if content_span:
-                return clean_whitespace(content_span.get_text())
-            parts = li_text.split("|")
-            for i, part in enumerate(parts):
-                if label.lower() in part.lower() and i + 1 < len(parts):
-                    return clean_whitespace(parts[i + 1])
+        if label_lc in li.get_text(" ", strip=True).lower():
+            span = li.select_one("span.data-header__content")
+            if span:
+                return clean_whitespace(span.get_text())
 
+    # 2) info-table (label span, then bold value span next to it)
     info_table = soup.select_one("div.info-table")
     if info_table:
         for span in info_table.select("span.info-table__content--regular"):
-            if label.lower() in span.get_text().lower():
+            if label_lc in span.get_text().lower():
                 value_span = span.find_next_sibling("span")
                 if value_span:
                     return clean_whitespace(value_span.get_text())
@@ -58,93 +48,83 @@ def _get_info_value(soup: BeautifulSoup, label: str) -> str:
     return ""
 
 
-def scrape_player_profile(url: str, delay: float = 2.0) -> dict:
-    """Fetch a single player profile page and return structured data."""
+def scrape_player_profile(url, delay=2.0):
     time.sleep(delay)
-    resp = SESSION.get(url, timeout=15)
+    resp = session.get(url, timeout=15)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "lxml")
 
-    data: dict = {"profile_url": url}
+    data = {"profile_url": url}
 
-    # Full name — remove shirt number <span> inside the <h1>
+    # full name: drop the shirt number span from the h1
     header = soup.select_one("header.data-header")
     if header:
-        name_tag = header.select_one("h1")
-        if name_tag:
-            for span in name_tag.select("span"):
+        h1 = header.select_one("h1")
+        if h1:
+            for span in h1.select("span"):
                 span.decompose()
-            data["full_name"] = clean_whitespace(name_tag.get_text())
+            data["full_name"] = clean_whitespace(h1.get_text())
 
-    # Date of birth and age
-    dob_text = _get_info_value(soup, "Date of birth")
+    dob_text = get_info_value(soup, "Date of birth")
     data["date_of_birth"] = extract_date(dob_text) or dob_text
     data["age"] = extract_age(dob_text)
 
-    data["place_of_birth"] = _get_info_value(soup, "Place of birth")
+    data["place_of_birth"] = get_info_value(soup, "Place of birth")
 
-    height_text = _get_info_value(soup, "Height")
+    height_text = get_info_value(soup, "Height")
     data["height_cm"] = extract_height_cm(height_text)
 
-    # Citizenship — deduplicated via dict.fromkeys
-    citizenship_imgs = soup.select("li.data-header__label img.flaggenrahmen")
-    if not citizenship_imgs:
-        citizenship_imgs = soup.select("span.info-table__content--bold img.flaggenrahmen")
-    data["citizenship"] = list(dict.fromkeys(
-        clean_whitespace(str(img.get("title", "")))
-        for img in citizenship_imgs if img.get("title")
-    ))
+    # citizenship flags can be in either layout; dedup preserving order
+    flag_imgs = soup.select("li.data-header__label img.flaggenrahmen")
+    if not flag_imgs:
+        flag_imgs = soup.select("span.info-table__content--bold img.flaggenrahmen")
+    titles = [clean_whitespace(str(img.get("title", ""))) for img in flag_imgs if img.get("title")]
+    data["citizenship"] = list(dict.fromkeys(titles))
 
-    data["position"] = _get_info_value(soup, "Position")
-    data["foot"] = _get_info_value(soup, "Foot")
+    data["position"] = get_info_value(soup, "Position")
+    data["foot"] = get_info_value(soup, "Foot")
 
-    data["current_club"] = _get_info_value(soup, "Current club")
-    joined_text = _get_info_value(soup, "Joined")
+    data["current_club"] = get_info_value(soup, "Current club")
+
+    joined_text = get_info_value(soup, "Joined")
     data["joined"] = extract_date(joined_text) or joined_text
-    contract_text = _get_info_value(soup, "Contract expires")
+
+    contract_text = get_info_value(soup, "Contract expires")
     data["contract_expires"] = extract_date(contract_text) or contract_text
     data["contract_expires_year"] = extract_year(contract_text)
 
-    # Market value from header — strip trailing "Last update: ..." text
+    # market value lives in the header; cut off the trailing "Last update: ..."
     mv_tag = soup.select_one("a.data-header__market-value-wrapper")
     if mv_tag:
-        mv_raw = clean_whitespace(mv_tag.get_text())
-        mv_raw = re.split(r"\s*Last update", mv_raw)[0].strip()
-        data["market_value_raw"] = mv_raw
-        data["market_value_eur"] = parse_market_value(mv_raw)
+        raw = clean_whitespace(mv_tag.get_text())
+        raw = re.split(r"\s*Last update", raw)[0].strip()
+        data["market_value_raw"] = raw
+        data["market_value_eur"] = parse_market_value(raw)
     else:
         data["market_value_raw"] = ""
         data["market_value_eur"] = None
 
-    # International caps/goals
+    # international caps/goals (shown as "12/3" near a national team link)
     data["international_caps"] = None
     data["international_goals"] = None
     intl_link = soup.select_one("span.info-table__content--bold a[href*='nationalmannschaft']")
     if intl_link:
         parent = intl_link.find_parent("li") or intl_link.find_parent("div")
         if parent:
-            caps_match = re.search(r"(\d+)\s*/\s*(\d+)", parent.get_text())
-            if caps_match:
-                data["international_caps"] = int(caps_match.group(1))
-                data["international_goals"] = int(caps_match.group(2))
+            caps = re.search(r"(\d+)\s*/\s*(\d+)", parent.get_text())
+            if caps:
+                data["international_caps"] = int(caps.group(1))
+                data["international_goals"] = int(caps.group(2))
 
     return data
 
 
-def scrape_multiple_profiles(urls: list[str], delay: float = 2.0) -> list[dict]:
-    """Scrape multiple player profiles with polite delays."""
+def scrape_multiple_profiles(urls, delay=2.0):
     results = []
     for url in tqdm(urls, desc="BS4 profiles", unit="player"):
         try:
             results.append(scrape_player_profile(url, delay=delay))
         except Exception as e:
-            tqdm.write(f"  Error: {e}")
+            tqdm.write(f"  error on {url}: {e}")
             results.append({"profile_url": url, "error": str(e)})
     return results
-
-
-if __name__ == "__main__":
-    test_url = "https://www.transfermarkt.com/erling-haaland/profil/spieler/418560"
-    result = scrape_player_profile(test_url)
-    for k, v in result.items():
-        print(f"  {k}: {v}")
